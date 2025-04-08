@@ -318,7 +318,7 @@
   - [x] タスクステータス更新ツール (`updateTaskStatus`)
   - [x] タスク保存用ヘルパー関数 (`saveTasks` - ワークフロー用)
 
-- [ ] 検索関連ツール (`src/mastra/tools/searchTools.ts`) - Agentで直接実装予定
+- [ ] 検索関連ツール (`src/mastra/tools/searchTools.ts`) - Agent内で実装 (`searchProjectInformationTool`)、要動作テスト
 
 - [x] **テスト:** ツール定義の構文確認
   ```bash
@@ -346,10 +346,10 @@
 - [x] プロジェクト質問対応エージェント (`src/mastra/agents/projectAgent.ts`)
   - [x] エージェント定義 (`new Agent`)
     - [x] 名前 (`name`), 指示 (`instructions`)
-    - [x] 使用するモデル (`model: openai('gpt-4o')` など)
-    - [x] 使用するツール (`tools`: projectTools, taskTools, searchTools を展開して含める)
+    - [x] 使用するモデル (`model: anthropic('claude-3-7-sonnet-20250219')`)
+    - [x] 使用するツール (`tools`: projectTools, taskTools, searchProjectInformationTool)
     - [x] メモリ設定 (`memory: new Memory()`)
-- [x] **テスト:** エージェント定義の構文確認とPlaygroundでの対話 - 構文確認OK (Workflowエラーは無視)
+- [x] **テスト:** エージェント定義の構文確認とCLIでの対話 - CLI対話OK
 
 ## 10. APIエンドポイントの実装 (Expressを使用する場合)
 
@@ -369,7 +369,7 @@
 
 - [x] Mastraインスタンスの初期化とAPI設定 (`src/mastra/index.ts`)
 - [x] アプリケーションのエントリーポイント (`src/index.ts` - Expressを使用する場合)
-- [ ] **テスト:** アプリケーションの起動と初期ログ確認 - 未実施
+- [x] **テスト:** アプリケーションの起動と初期ログ確認
 
 ## 12. 統合テスト
 

@@ -35,18 +35,71 @@ const searchOutputSchema = z.array(
 // Define the search tool using createTool
 const searchProjectInformationTool = createTool({
   id: 'searchProjectInformation',
-  description: 'プロジェクト関連情報をベクトルDBから検索します (現在実装見直し中)',
+  description: 'プロジェクト関連情報 (会議記録、要約など) を意味的に検索します',
   inputSchema: searchInputSchema,
   outputSchema: searchOutputSchema,
   execute: async (executionContext: ToolExecutionContext<typeof searchInputSchema>) => {
-    console.warn(
-      'searchProjectInformationTool execute function needs implementation based on embeddingModel capabilities.',
-    );
-    // TODO: Implement actual vector search logic using embeddingModel
-    // const { query, projectId, type, limit = 5 } = executionContext.context;
-    // This logic is likely incorrect as embeddingModel doesn't have similaritySearch
-    // const results = await embeddingModel.similaritySearch(query, limit, filter);
-    return []; // Return empty array for now
+    const { query, projectId, type, limit = 5 } = executionContext.context;
+
+    try {
+      // 1. Generate embedding for the query
+      const embeddingResult = await embeddingModel.doEmbed({ values: [query] });
+      const queryVector = embeddingResult.embeddings[0];
+
+      if (!queryVector) {
+        throw new Error('Failed to generate query embedding.');
+      }
+
+      // Use pgvector helper to convert embedding to SQL string format
+      const queryVectorSql = pgvector.toSql(queryVector);
+
+      // 2. Build SQL query using pg Pool and parameterized queries
+      let sql = `SELECT 
+                    ${env.PGVECTOR_CONTENT_COLUMN} as content, 
+                    ${env.PGVECTOR_METADATA_COLUMN} as metadata, 
+                    1 - (${env.PGVECTOR_VECTOR_COLUMN} <=> $1) AS score 
+                 FROM ${env.PGVECTOR_TABLE_NAME}`;
+
+      const conditions: string[] = [];
+      const params: any[] = [queryVectorSql]; // Start params with vector
+      let paramIndex = 2; // Start parameter index from $2
+
+      // Add filters based on context
+      // Ensure metadata filters use JSONB accessor correctly
+      if (projectId) {
+        conditions.push(`${env.PGVECTOR_METADATA_COLUMN}->>'projectId' = $${paramIndex++}`);
+        params.push(projectId);
+      }
+      if (type) {
+        conditions.push(`${env.PGVECTOR_METADATA_COLUMN}->>'type' = $${paramIndex++}`);
+        params.push(type);
+      }
+
+      if (conditions.length > 0) {
+        sql += ` WHERE ${conditions.join(' AND ')}`;
+      }
+
+      // Order by score DESC (higher similarity is better, 1 - distance)
+      sql += ` ORDER BY score DESC LIMIT $${paramIndex++}`;
+      params.push(limit);
+
+      // 3. Execute the query using the pg Pool
+      const { rows } = await pool.query(sql, params);
+
+      // 4. Parse and return results (score is already calculated as 1 - distance)
+      // Ensure the output matches the defined outputSchema
+      return searchOutputSchema.parse(
+        rows.map(row => ({
+          ...row,
+          // Ensure score is treated as optional if it might be null/undefined from DB
+          score: row.score ?? undefined,
+        })),
+      );
+    } catch (error) {
+      console.error('Error during vector search:', error);
+      // Consider logging the specific query and params for debugging
+      return []; // Return empty array on error
+    }
   },
 });
 
@@ -87,7 +140,7 @@ export const projectAgent = new Agent({
     
     特定のプロジェクトに関する質問の場合は、まずそのプロジェクトIDを特定または確認してください。
     プロジェクトIDがない場合は、プロジェクト名からIDを検索するか、利用可能なプロジェクト一覧を提示してください。
-    (注: 現在、会議内容などの詳細検索機能は実装見直し中です)
+    (注: 会議内容などの詳細検索機能が利用可能になりました)
     (注: タスク管理ツールは現在無効です)
   `,
 
