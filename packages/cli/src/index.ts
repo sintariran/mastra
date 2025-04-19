@@ -163,12 +163,13 @@ program
   .command('build')
   .description('Build your Mastra project')
   .option('-d, --dir <path>', 'Path to directory')
+  .option('-t, --tools <toolsDirs>', 'Comma-separated list of paths to tool files to include')
   .action(async args => {
     await analytics.trackCommandExecution({
       command: 'mastra build',
       args,
       execution: async () => {
-        await build({ dir: args.dir });
+        await build({ dir: args.dir, tools: args.tools ? args.tools.split(',') : [] });
       },
       origin,
     });
@@ -184,6 +185,10 @@ program
       command: 'mastra deploy',
       args,
       execution: async () => {
+        logger.warn(`DEPRECATED: The deploy command is deprecated.
+          Please use the mastra build command instead.
+          Then deploy .mastra/output to your target platform.
+          `);
         await deploy({ dir: args.dir });
       },
       origin,

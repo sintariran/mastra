@@ -1,12 +1,14 @@
 import { randomUUID } from 'crypto';
 import { readFile } from 'fs/promises';
-import { join } from 'path';
-import { pathToFileURL } from 'url';
+import { dirname } from 'path';
+import { join } from 'path/posix';
+import { fileURLToPath, pathToFileURL } from 'url';
 import { serve } from '@hono/node-server';
 import { serveStatic } from '@hono/node-server/serve-static';
 import { swaggerUI } from '@hono/swagger-ui';
 import { Telemetry } from '@mastra/core';
 import type { Mastra } from '@mastra/core';
+import { Container } from '@mastra/core/di';
 import { Hono } from 'hono';
 import type { Context, MiddlewareHandler } from 'hono';
 import { bodyLimit } from 'hono/body-limit';
@@ -14,7 +16,6 @@ import { cors } from 'hono/cors';
 import { logger } from 'hono/logger';
 import { timeout } from 'hono/timeout';
 import { describeRoute, openAPISpecs } from 'hono-openapi';
-
 import {
   generateHandler,
   getAgentByIdHandler,
@@ -66,6 +67,7 @@ type Bindings = {};
 
 type Variables = {
   mastra: Mastra;
+  container: Container;
   clients: Set<{ controller: ReadableStreamDefaultController }>;
   tools: Record<string, any>;
   playground: boolean;
@@ -80,11 +82,15 @@ export async function createHonoServer(
   const server = mastra.getServer();
 
   // Initialize tools
-  const mastraToolsPaths = process.env.MASTRA_TOOLS_PATH;
+  // @ts-ignore
+  const __dirname = dirname(fileURLToPath(import.meta.url));
+
+  const mastraToolsPaths = (await import(pathToFileURL(join(__dirname, 'tools.mjs')).href)).tools;
   const toolImports = mastraToolsPaths
     ? await Promise.all(
-        mastraToolsPaths.split(',').map(async toolPath => {
-          return import(pathToFileURL(toolPath).href);
+        // @ts-ignore
+        mastraToolsPaths.map(async toolPath => {
+          return import(pathToFileURL(join(__dirname, toolPath)).href);
         }),
       )
     : [];
@@ -97,40 +103,8 @@ export async function createHonoServer(
   }, {});
 
   // Middleware
-  app.use(
-    '*',
-    timeout(server?.timeout ?? 1000 * 30),
-    cors({
-      origin: '*',
-      allowMethods: ['GET', 'POST', 'PUT', 'DELETE', 'OPTIONS'],
-      allowHeaders: ['Content-Type', 'Authorization', 'x-mastra-client-type'],
-      exposeHeaders: ['Content-Length', 'X-Requested-With'],
-      credentials: false,
-      maxAge: 3600,
-    }),
-  );
 
-  if (options.apiReqLogs) {
-    app.use(logger());
-  }
-
-  app.onError(errorHandler);
-
-  // Apply custom server middleware from Mastra instance
-  const serverMiddleware = mastra.getServerMiddleware?.();
-
-  if (serverMiddleware && serverMiddleware.length > 0) {
-    for (const m of serverMiddleware) {
-      app.use(m.path, m.handler);
-    }
-  }
-
-  // Add Mastra to context
-  app.use('*', async (c, next) => {
-    c.set('mastra', mastra);
-    c.set('tools', tools);
-    c.set('playground', options.playground === true);
-
+  app.use('*', async function setTelemetryInfo(c, next) {
     const requestId = c.req.header('x-request-id') ?? randomUUID();
     const span = Telemetry.getActiveSpan();
     if (span) {
@@ -151,6 +125,49 @@ export async function createHonoServer(
       await next();
     }
   });
+
+  if (options.apiReqLogs) {
+    app.use(logger());
+  }
+
+  app.onError(errorHandler);
+
+  // Add Mastra to context
+  app.use('*', function setContext(c, next) {
+    const container = new Container();
+
+    c.set('container', container);
+    c.set('mastra', mastra);
+    c.set('tools', tools);
+    c.set('playground', options.playground === true);
+
+    return next();
+  });
+
+  // Apply custom server middleware from Mastra instance
+  const serverMiddleware = mastra.getServerMiddleware?.();
+
+  if (serverMiddleware && serverMiddleware.length > 0) {
+    for (const m of serverMiddleware) {
+      app.use(m.path, m.handler);
+    }
+  }
+
+  //Global cors config
+  if (server?.cors === false) {
+    app.use('*', timeout(server?.timeout ?? 3 * 60 * 1000));
+  } else {
+    const corsConfig = {
+      origin: '*',
+      allowMethods: ['GET', 'POST', 'PUT', 'DELETE', 'OPTIONS'],
+      credentials: false,
+      maxAge: 3600,
+      ...server?.cors,
+      allowHeaders: ['Content-Type', 'Authorization', 'x-mastra-client-type', ...(server?.cors?.allowHeaders ?? [])],
+      exposeHeaders: ['Content-Length', 'X-Requested-With', ...(server?.cors?.exposeHeaders ?? [])],
+    };
+    app.use('*', timeout(server?.timeout ?? 3 * 60 * 1000), cors(corsConfig));
+  }
 
   const bodyLimitOptions = {
     maxSize: 4.5 * 1024 * 1024, // 4.5 MB,
@@ -187,7 +204,7 @@ export async function createHonoServer(
       if (route.openapi) {
         middlewares.push(describeRoute(route.openapi));
       }
-      console.log({ path: route.path, middlewares });
+
       if (route.method === 'GET') {
         app.get(route.path, ...middlewares, route.handler);
       } else if (route.method === 'POST') {
@@ -2188,21 +2205,23 @@ export async function createNodeServer(
 
   const port = serverOptions?.port ?? (Number(process.env.PORT) || 4111);
 
-  return serve(
+  const server = serve(
     {
       fetch: app.fetch,
       port,
     },
     () => {
       const logger = mastra.getLogger();
-      logger.info(`🦄 Mastra API running on port ${process.env.PORT || 4111}/api`);
-      logger.info(`📚 Open API documentation available at http://localhost:${process.env.PORT || 4111}/openapi.json`);
+      logger.info(`🦄 Mastra API running on port ${port}/api`);
+      logger.info(`📚 Open API documentation available at http://localhost:${port}/openapi.json`);
       if (options?.swaggerUI) {
-        logger.info(`🧪 Swagger UI available at http://localhost:${process.env.PORT || 4111}/swagger-ui`);
+        logger.info(`🧪 Swagger UI available at http://localhost:${port}/swagger-ui`);
       }
       if (options?.playground) {
-        logger.info(`👨‍💻 Playground available at http://localhost:${process.env.PORT || 4111}/`);
+        logger.info(`👨‍💻 Playground available at http://localhost:${port}/`);
       }
     },
   );
+
+  return server;
 }
