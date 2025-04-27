@@ -7,9 +7,10 @@ import { Memory } from '@mastra/memory'; // Import Memory class
 import { embeddingModel } from '../memory/vectorStore.js';
 import { projectTools } from '../tools/projectTools.js';
 import { taskTools } from '../tools/taskTools.js';
+import { processMeetingTranscript } from '../tools/meetingTools.js';
 import { db } from '../../db/index.js';
 import pgvector from 'pgvector/pg'; // Import pgvector helpers
-import { pool } from '../../db/index.js'; // Import the pg Pool
+// import { pool } from '../../db/index.js'; // Removed pool
 import { env } from '../../utils/env.js'; // Import env variables
 
 // Define schema for the search tool input
@@ -83,13 +84,13 @@ const searchProjectInformationTool = createTool({
       sql += ` ORDER BY score DESC LIMIT $${paramIndex++}`;
       params.push(limit);
 
-      // 3. Execute the query using the pg Pool
-      const { rows } = await pool.query(sql, params);
+      // 3. Execute the query using pg-promise db
+      const { rows } = await db.query(sql, params);
 
       // 4. Parse and return results (score is already calculated as 1 - distance)
       // Ensure the output matches the defined outputSchema
       return searchOutputSchema.parse(
-        rows.map(row => ({
+        rows.map((row: any) => ({
           ...row,
           // Ensure score is treated as optional if it might be null/undefined from DB
           score: row.score ?? undefined,
@@ -162,7 +163,8 @@ export const projectAgent = new Agent({
         return acc;
       },
       {} as { [id: string]: Tool<any, any> },
-    ), // Restore taskTools
+    ),
+    [processMeetingTranscript.id]: processMeetingTranscript,
     [searchProjectInformationTool.id]: searchProjectInformationTool,
   },
 

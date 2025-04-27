@@ -42,3 +42,22 @@
 - **`zod`:** Used for defining input/output schemas for Tools and potentially other validation tasks.
 - **`@mastra/client-js`:** Frontend SDK.
 - **`create-mastra`:** Scaffolding CLI tool.
+
+### 6.5. Auto-Run Workflow (`autoRun.ts`)
+
+- The `plannerAgent` is responsible for planning the sequence of operations based on a high-level goal. Its output **must** adhere strictly to the specified JSON schema (`{ action: "run" | "finish", toolId?: string, params?: object, result?: any }`).
+- The `executor` step within `autoRunWorkflow` handles the execution loop:
+  - It calls the `plannerAgent`.
+  - It dynamically looks up and executes the specified Tool or Workflow using the `mastra` instance.
+  - It accumulates results in the `queue` passed back to the planner.
+  - It handles errors gracefully, deciding whether to retry, skip, or abort the workflow.
+- When implementing Plan-Execute patterns:
+  - Ensure the Planner gives clear, explicit action instructions with properly structured parameters.
+  - Queue should maintain relevant context between planning iterations.
+  - Implement timeouts to prevent infinite loops (e.g., via `Promise.race`).
+  - Log each planning and execution step for observability.
+- Adding new capabilities (Tools or Workflows) should not require modification of `autoRun.ts` itself, only registration in `src/mastra/index.ts` so the planner can discover them.
+- Testing Auto-Run Workflows:
+  - Use `curl` with the workflow API (`/api/workflows/auto-run/create-run` and `/api/workflows/auto-run/start`).
+  - Verify Tool execution by checking database state or other side effects.
+  - Use `watch` endpoint (`/api/workflows/auto-run/watch?runId=...`) to stream updates during execution.

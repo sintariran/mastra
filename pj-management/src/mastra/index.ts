@@ -2,8 +2,10 @@
 // dotenv.config(); // Remove this as it's handled in env.ts now
 
 import { Mastra } from '@mastra/core';
+import { PgVector } from '@mastra/pg';
 import { createLogger } from '@mastra/core/logger';
-import { projectAgent } from './agents/projectAgent.js'; // Import directly from projectAgent.js
+import { projectAgent } from './agents/projectAgent.js';
+import { plannerAgent, autoRunWorkflow } from './autoRun.js';
 // import { meetingWorkflow } from './workflows/index.js'; // Workflow is on hold
 import { env } from '../utils/env.js';
 
@@ -13,15 +15,26 @@ const logger = createLogger({
   // name: 'ProjectManagementAI' // Optional: Add a name to the logger
 });
 
+// ベクトルストアの設定 (PgVector を使用)
+const vectorStore = new PgVector({
+  connectionString: env.DATABASE_URL,
+  // Add schemaName if needed, e.g., schemaName: 'vector_schema'
+});
+
 // Mastraインスタンスの初期化
 export const mastra = new Mastra({
   agents: {
-    projectAgent, // Register the agent
+    projectAgent,
+    plannerAgent,
   },
-  // workflows: {
-  //   meetingWorkflow, // Workflow registration is on hold
-  // },
+  workflows: {
+    autoRun: autoRunWorkflow,
+    // meetingWorkflow,
+  },
   logger,
+  vectors: {
+    pgvectorStore: vectorStore,
+  },
   // 必要に応じて他の設定 (メモリプロバイダなど) - Memory is configured within the Agent itself now
 });
 

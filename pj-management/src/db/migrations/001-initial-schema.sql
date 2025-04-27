@@ -1,6 +1,8 @@
+CREATE EXTENSION IF NOT EXISTS vector;
+
 -- プロジェクトテーブル
 CREATE TABLE projects (
-  id TEXT PRIMARY KEY,
+  id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
   name TEXT NOT NULL,
   description TEXT,
   start_date TIMESTAMPTZ NOT NULL,
@@ -13,7 +15,7 @@ CREATE TABLE projects (
 -- 会議記録テーブル (ベクトル埋め込みはベクトルストア側で管理する想定に変更)
 CREATE TABLE meeting_records (
   id TEXT PRIMARY KEY,
-  project_id TEXT NOT NULL REFERENCES projects(id) ON DELETE CASCADE,
+  project_id UUID NOT NULL REFERENCES projects(id) ON DELETE CASCADE,
   date TIMESTAMPTZ NOT NULL,
   participants TEXT[],
   raw_transcript TEXT NOT NULL,
@@ -25,7 +27,7 @@ CREATE TABLE meeting_records (
 -- タスクテーブル
 CREATE TABLE tasks (
   id TEXT PRIMARY KEY DEFAULT gen_random_uuid(), -- UUID生成を推奨
-  project_id TEXT NOT NULL REFERENCES projects(id) ON DELETE CASCADE,
+  project_id UUID NOT NULL REFERENCES projects(id) ON DELETE CASCADE,
   description TEXT NOT NULL,
   assignee TEXT,
   due_date TIMESTAMPTZ,

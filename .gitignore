@@ -9,7 +9,7 @@ dist/
 # Dev artifacts
 .dev/db/*
 
-.env
+# .env # Temporarily commented out to allow AI editing
 
 **/tsconfig.tsbuildinfo
 
@@ -30,3 +30,7 @@ memory.db-*
 # Test directories
 voice/**/test-outputs/
 voice/**/test-data/
+
+.env
+.env.*
+!.env.example
